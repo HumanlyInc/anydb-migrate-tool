@@ -1,6 +1,6 @@
 # AnyDB Migrate
 
-[AnyDB](https://www.anydb.com/) is an object-based platform for organizing business data and operations. It models real-world things—such as items, locations, vendors, and shipments—as structured records that can be connected to one another.
+[AnyDB](https://www.anydb.com/) is an object-based platform for organizing business data and operations. It models real-world things—such as items, locations, vendors, and shipments so they are structured records that can be connected to one another.
 
 AnyDB Migrate is a small local CLI for moving spreadsheet data into that connected model. Rather than importing every source row as one flat record, it can map a row into multiple AnyDB objects, look up or update existing records, create missing records, and link the results together. Objects are processed in YAML order, so each object can reference records resolved earlier for the same row.
 
