@@ -1,6 +1,41 @@
 # AnyDB Migrate
 
-A deliberately small local CLI that maps each CSV or XLSX row into one or more interlinked AnyDB objects. Objects run in YAML order, so later objects can reference records found or written earlier for the same row.
+[AnyDB](https://www.anydb.com/) is an object-based platform for organizing business data and operations. It models real-world things—such as items, locations, vendors, and shipments—as structured records that can be connected to one another.
+
+AnyDB Migrate is a small local CLI for moving spreadsheet data into that connected model. Rather than importing every source row as one flat record, it can map a row into multiple AnyDB objects, look up or update existing records, create missing records, and link the results together. Objects are processed in YAML order, so each object can reference records resolved earlier for the same row.
+
+## Supported formats
+
+- **CSV (`.csv`)** as a source, with the first row used as column headers.
+- **Excel (`.xlsx`)** as a source, with optional worksheet selection.
+- **YAML (`.yaml` or `.yml`)** for describing how source columns map to AnyDB objects, fields, matches, and references.
+
+## One record, multiple objects
+
+For example, this spreadsheet row:
+
+```text
+SKU  | Name          | Location | Quantity
+A100 | Safety Gloves | Austin   | 24
+```
+
+can become three connected AnyDB objects:
+
+```text
+Item
+  SKU: A100
+  Item Name: Safety Gloves
+
+Location
+  Location Name: Austin
+
+Inventory Item
+  Quantity On Hand: 24
+  Item Ref: -> Item (A100)
+  Location Ref: -> Location (Austin)
+```
+
+The `Item` can be created or updated, the `Location` can be looked up, and the `Inventory Item` can then reference both. The mapping and behavior for each object are declared in the migration's YAML configuration.
 
 ## Setup
 
