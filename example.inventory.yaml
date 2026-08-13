@@ -1,0 +1,50 @@
+name: inventory-import
+
+anydb:
+  # teamId and databaseId can instead come from ANYDB_TEAM_ID and ANYDB_ADB_ID.
+  teamId: your-team-id
+  databaseId: your-database-id
+
+source:
+  file: ./inventory.xlsx
+  sheet: Inventory
+
+objects:
+  - name: item
+    type: Item
+    mode: upsert
+    # Optional explicit template ADOID override; normally the type name is enough.
+    template: your-item-template-adoid
+    match:
+      field: SKU
+      column: SKU
+    fields:
+      SKU: SKU
+      Item Name: Name
+
+  - name: location
+    type: Location
+    mode: lookup
+    match:
+      field: Location Name
+      column: Location
+
+  - name: inventoryItem
+    type: Inventory Item
+    mode: upsert
+    template: your-inventory-item-template-adoid
+    match:
+      fields:
+        Item Ref:
+          object: item
+        Location Ref:
+          object: location
+    fields:
+      Quantity On Hand: Quantity
+      Status:
+        value: Active
+    references:
+      Item Ref:
+        object: item
+      Location Ref:
+        object: location

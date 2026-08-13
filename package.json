@@ -1,0 +1,31 @@
+{
+  "name": "anydb-migrate",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Minimal spreadsheet migration CLI for AnyDB",
+  "type": "module",
+  "bin": {
+    "anydb-migrate": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "tsx --test src/source/sourceReaders.test.ts src/migration/matching.test.ts src/migration/MigrationEngine.test.ts src/config/schema.test.ts src/config/validateRemote.test.ts src/anydb/RequestLimiter.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "anydb-api-sdk-ts": "^1.4.0",
+    "commander": "^14.0.0",
+    "csv-parse": "^6.1.0",
+    "exceljs": "^4.4.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
