@@ -1,15 +1,34 @@
 {
-  "name": "anydb-migrate",
+  "name": "@anydbinc/anydb-migrate",
   "version": "0.1.0",
-  "private": true,
   "description": "Minimal spreadsheet migration CLI for AnyDB",
+  "keywords": [
+    "anydb",
+    "cli",
+    "csv",
+    "excel",
+    "migration"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HumanlyInc/anydb-migrate-tool.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HumanlyInc/anydb-migrate-tool/issues"
+  },
+  "homepage": "https://github.com/HumanlyInc/anydb-migrate-tool#readme",
   "type": "module",
+  "files": [
+    "dist",
+    "example.inventory.yaml"
+  ],
   "bin": {
     "anydb-migrate": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
+    "prepack": "npm test && npm run build",
     "test": "tsx --test src/source/sourceReaders.test.ts src/migration/matching.test.ts src/migration/MigrationEngine.test.ts src/config/schema.test.ts src/config/validateRemote.test.ts src/anydb/RequestLimiter.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -27,5 +46,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
