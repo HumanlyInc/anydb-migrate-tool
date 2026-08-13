@@ -1,4 +1,4 @@
-# AnyDB Migrate
+# AnyDB Migrate Tool
 
 [AnyDB](https://www.anydb.com/) is an object-based platform for organizing business data and operations. It models real-world things—such as items, locations, vendors, and shipments so they are structured records that can be connected to one another.
 
