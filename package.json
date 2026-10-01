@@ -10,7 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
-    "test": "tsx --test src/source/sourceReaders.test.ts src/migration/matching.test.ts src/migration/MigrationEngine.test.ts src/config/schema.test.ts src/config/validateRemote.test.ts src/anydb/RequestLimiter.test.ts",
+    "test": "tsx --test src/source/sourceReaders.test.ts src/migration/matching.test.ts src/migration/MigrationEngine.test.ts src/migration/features.test.ts src/migration/mapping.test.ts src/config/schema.test.ts src/config/steps.test.ts src/config/validateRemote.test.ts src/anydb/RequestLimiter.test.ts src/env.test.ts src/commands/run.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

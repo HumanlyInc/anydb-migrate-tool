@@ -91,7 +91,7 @@ test("dry run performs lookups and makes no writes", async () => {
     { name: "item", type: "Item", mode: "upsert", match: { field: "SKU", column: "SKU" }, fields: { SKU: "SKU" } },
     { name: "newObject", type: "Other", mode: "create", references: { Parent: { object: "item" } } },
   ]), row, { dryRun: true });
-  assert.equal(result.summaries.item?.updated, 1);
+  assert.equal(result.summaries.item?.unchanged, 1);
   assert.equal(result.summaries.newObject?.created, 1);
   assert.equal(client.creates.length, 0);
   assert.equal(client.updates.length, 0);

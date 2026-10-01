@@ -223,3 +223,97 @@ Loading Item cache: 10/655 records (2%)
 ...
 Loading Item cache: ready (655 records)
 ```
+
+## Multi-step, relational migrations (v0.2)
+
+Real data is rarely one flat sheet. A plan can now list several **steps**, each reading its own CSV or XLSX, run in order against one shared record cache, so a later step can look up what an earlier step created.
+
+```yaml
+name: HubSpot partner program
+steps:
+  - name: partners
+    source: { file: ./data/partners.csv }
+    objects: [ ... ]
+  - name: contacts
+    source: { file: ./data/contacts.csv }
+    objects: [ ... ]
+```
+
+The single `source` + `objects` form still works and is treated as one step. See [`examples/hubspot-partners`](./examples/hubspot-partners/README.md) for a complete worked migration.
+
+### Parents
+
+AnyDB records can sit under several parents (a contact under its company and under a partner's portal record, say). Say so with `parents`; the first is the primary parent.
+
+```yaml
+- name: contact
+  type: Contact
+  mode: upsert
+  match: { field: HubSpot ID, column: contact_hs }
+  parents:
+    - object: company
+    - object: partnerInfo
+```
+
+Existing records are brought up to date: a missing parent is added, never removed.
+
+`match` can also find a record by its parent, for types with no key of their own (one Partner Info per Partner):
+
+```yaml
+match:
+  parent: { object: partner }       # alone, or alongside `fields`
+```
+
+### Safe re-runs: unchanged records are left alone
+
+Upserts compare what is stored with what the row would write (loosely: `"6000"` equals `6000`, array order is ignored) and only write the differences. A blank source cell never erases data. So:
+
+- run the plan again after a failure and finished rows report **Unchanged**;
+- after a real run, `run --dry-run` should report everything **Unchanged**. That is the verification step. Anything else is a real difference, listed with `--verbose`.
+
+A dry run also remembers what it *would* create, so later steps resolve their lookups and the whole plan can be previewed before anything is written.
+
+### Value transforms (no code)
+
+A field can be a plain column name, or an object with one base (`column`, `value`, `object`, `template`, `coalesce`) and, for `column`, these modifiers:
+
+| Modifier | Effect |
+|---|---|
+| `map` + `strict` | translate values; `strict` fails the row on an unmapped value, otherwise it passes through (or uses `default`) |
+| `default` | used when the value is empty |
+| `split: ";"` | text to a list (multi-select fields) |
+| `date: excel \| iso` | to epoch seconds |
+| `number`, `boolean` | parse |
+| `lower`, `decode`, `trim: false` | text clean-up (text is trimmed by default; `decode` turns `&amp;` into `&`) |
+
+`template: "Hello {First} {Last}"` joins columns; `coalesce: [a, b]` takes the first non-empty column.
+
+### Optional and conditional objects
+
+- `optional: true` on a `lookup` or `upsert`: not finding the record (or an empty key) skips it instead of failing the row. References to it are left out.
+- `skipWhenEmpty: [column, ...]`: skip the object when any of these columns is empty.
+
+### Commands and options
+
+```bash
+anydb-migrate check                          # which settings are present (never values) and a connection test
+anydb-migrate validate plan.yaml             # config, sources, and live type/field checks
+anydb-migrate run plan.yaml --dry-run        # preview
+anydb-migrate run plan.yaml --where partner_hs=1,2,3     # only these rows (steps without that column are not filtered)
+anydb-migrate run plan.yaml --step contacts  # only this step (repeatable)
+anydb-migrate run plan.yaml --failures failed.csv        # write failed rows to a CSV
+anydb-migrate orphans plan.yaml              # read-only: list blank records left behind by failed creates
+```
+
+`--where` is how to try a few records before a full run: start with a handful, check them, then drop the filter.
+
+### Credentials
+
+`anydb-migrate` reads the environment variables listed above and, if present, a `.env` file in the current directory (or `--env-file <file>`). The file may use `KEY=value` lines or pasted PowerShell `$env:KEY="value"` lines. Values already in the environment win; nothing is ever printed. `.env` is git-ignored.
+
+### Things to know
+
+- **Locked and formula fields cannot be written through the API.** `validate` and `run` check the live type and refuse a plan that writes one, naming the field. Set those another way (for example with a script run inside AnyDB).
+- **Retries.** Rate limits (429) are always retried. Gateway errors (502/503/504) and network resets are retried with backoff for reads and updates, but **not for creates**, because repeating a create could make a duplicate. A failed create is reported; re-run the plan and, since each record is matched on its key, finished work is skipped.
+- **A failed create can leave a blank record** behind. Records are created with their values in a single call to make this rare, and `orphans` lists any that remain so they can be deleted in AnyDB.
+- A new record always stores the values it was matched on, so a re-run finds it.

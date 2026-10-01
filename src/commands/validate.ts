@@ -6,17 +6,16 @@ import { validateAgainstAnyDB } from "../config/validateRemote.js";
 
 export async function validateCommand(configFile: string): Promise<void> {
   const loaded = await loadConfig(configFile);
-  try {
-    await access(loaded.sourcePath);
-  } catch {
-    throw new Error(`Source file does not exist: ${loaded.sourcePath}`);
+  const client = createSdkClient(loaded.plan);
+  console.log(`Valid configuration: ${loaded.plan.name} (${loaded.steps.length} step${loaded.steps.length === 1 ? "" : "s"})`);
+  for (const step of loaded.steps) {
+    try {
+      await access(step.sourcePath);
+    } catch {
+      throw new Error(`Source file does not exist for step "${step.name}": ${step.sourcePath}`);
+    }
+    const rows = await createSourceReader(step.sourcePath, step.config.source.sheet).read();
+    await validateAgainstAnyDB(client, step.config, rows);
+    console.log(`- ${step.name}: ${rows.length} rows, ${step.config.objects.length} objects, AnyDB types and fields valid`);
   }
-  const rows = await createSourceReader(loaded.sourcePath, loaded.config.source.sheet).read();
-  const client = createSdkClient(loaded.config);
-  await validateAgainstAnyDB(client, loaded.config, rows);
-  console.log(`Valid: ${loaded.config.name}`);
-  console.log(`Source: ${loaded.sourcePath}`);
-  console.log(`Rows: ${rows.length}`);
-  console.log(`Objects: ${loaded.config.objects.length}`);
-  console.log("AnyDB types and fields: valid");
 }
