@@ -1,5 +1,5 @@
 import { SdkMigrationClient } from "./sdkClient.js";
-import type { MigrationConfig } from "../types/config.js";
+import type { AnyDBSettings } from "../types/config.js";
 
 function required(value: string | undefined, name: string): string {
   if (!value) throw new Error(`Missing ${name}; set it in the YAML anydb section or the corresponding environment variable`);
@@ -19,7 +19,7 @@ function requestRate(value: string | number | undefined): number {
   return parsed;
 }
 
-export function createSdkClient(config: MigrationConfig, options: CreateSdkClientOptions = {}): SdkMigrationClient {
+export function createSdkClient(config: { anydb?: AnyDBSettings }, options: CreateSdkClientOptions = {}): SdkMigrationClient {
   return new SdkMigrationClient({
     apiKey: required(process.env.ANYDB_API_KEY, "ANYDB_API_KEY"),
     userEmail: required(process.env.ANYDB_USER_EMAIL, "ANYDB_USER_EMAIL"),
@@ -31,6 +31,9 @@ export function createSdkClient(config: MigrationConfig, options: CreateSdkClien
     onRateLimit: (waitMs, attempt) => {
       const seconds = Math.ceil(waitMs / 1_000);
       console.warn(`AnyDB rate limit reached. Waiting ${seconds} second${seconds === 1 ? "" : "s"} before retry ${attempt}/5...`);
+    },
+    onServerError: (status, waitMs, attempt) => {
+      console.warn(`AnyDB returned ${status}. Waiting ${Math.ceil(waitMs / 1_000)} seconds before retry ${attempt}...`);
     },
     onCacheProgress: ({ objectType, phase, loaded, total }) => {
       if (phase === "listing") {

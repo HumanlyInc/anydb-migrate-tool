@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
-import { validateConfig } from "./schema.js";
-import type { LoadedConfig } from "../types/config.js";
+import { normalizeConfig, validateConfig } from "./schema.js";
+import type { LoadedConfig, LoadedStep } from "../types/config.js";
 
 export async function loadConfig(filename: string): Promise<LoadedConfig> {
   const configPath = path.resolve(filename);
@@ -20,9 +20,16 @@ export async function loadConfig(filename: string): Promise<LoadedConfig> {
     throw new Error(`Invalid YAML in ${configPath}: ${error instanceof Error ? error.message : String(error)}`);
   }
   validateConfig(config);
-  return {
-    config,
-    configPath,
-    sourcePath: path.resolve(path.dirname(configPath), config.source.file),
-  };
+  const plan = normalizeConfig(config);
+  const steps: LoadedStep[] = plan.steps.map((step) => ({
+    name: step.name,
+    sourcePath: path.resolve(path.dirname(configPath), step.source.file),
+    config: {
+      name: plan.steps.length > 1 ? `${plan.name} / ${step.name}` : plan.name,
+      anydb: plan.anydb,
+      source: step.source,
+      objects: step.objects,
+    },
+  }));
+  return { plan, configPath, steps };
 }

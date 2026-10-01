@@ -58,3 +58,34 @@ test("live validation reports missing types, fields, source columns, and invalid
     return true;
   });
 });
+
+test("live validation rejects locked and formula fields that the API cannot write", async () => {
+  const guarded = {
+    listTypes: async () => ["Thing"],
+    getType: async () => ({
+      name: "Thing",
+      id: "thing-type",
+      fields: [
+        { name: "Key", position: "A1", valueType: "string" },
+        { name: "Locked Ref", position: "A2", valueType: "ref", format: "ref", locked: true },
+        { name: "Total", position: "A3", valueType: "number", computed: true },
+        { name: "Plain", position: "A4", valueType: "string" },
+      ],
+    }),
+  } as unknown as MigrationAnyDBClient;
+  await assert.rejects(validateAgainstAnyDB(guarded, {
+    name: "x",
+    source: { file: "x.csv" },
+    objects: [{
+      name: "thing", type: "Thing", mode: "upsert",
+      match: { field: "Key", column: "Key" },
+      fields: { Plain: "Plain", Total: "Total" },
+      references: { "Locked Ref": { object: "earlier" } },
+    }],
+  }, [{ rowNumber: 2, values: { Key: "k", Plain: "p", Total: "1" } }]), (error: unknown) => {
+    assert.match((error as Error).message, /"Locked Ref".*is locked/);
+    assert.match((error as Error).message, /"Total".*formula/);
+    assert.doesNotMatch((error as Error).message, /"Plain"/);
+    return true;
+  });
+});

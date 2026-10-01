@@ -1,0 +1,283 @@
+# HubSpot partner program -> AnyDB partner model.
+#
+#   node examples/hubspot-partners/prepare.mjs <exports-dir> examples/hubspot-partners/data
+#   anydb-migrate run examples/hubspot-partners/plan.yaml --dry-run
+#   anydb-migrate run examples/hubspot-partners/plan.yaml --where partner_hs=123,456   # a few partners first
+#
+# Steps run in order and share one record cache, so later steps find what earlier steps created.
+# Every record is matched on its HubSpot ID, so the whole plan can be re-run safely; a second run
+# (or a dry run after a real one) reports everything as unchanged.
+name: HubSpot partner program
+
+steps:
+  # 1. Partners, each with its Partner Info (the portal face, one per partner)
+  - name: partners
+    source:
+      file: ./data/partners.csv
+    objects:
+      - name: partner
+        type: Partner
+        mode: upsert
+        match:
+          field: HubSpot ID
+          column: partner_hs
+        fields:
+          Partner Name: partner_name
+          Website Domain: website_domain
+          Allowed Email Domains: allowed_domains
+          Pipeline Stage: pipeline_stage
+          Status:
+            column: status
+            strict: true
+            map: { Active: Active, Churned: Churned, Prospect: Prospect, Inactive: Inactive }
+          Region:
+            column: region
+            map:
+              AMER: Americas
+              APAC: Asia Pacific
+              EMEA: Europe, Middle East & Africa
+          Partner Type:
+            column: partner_types
+            split: ";"
+          Level: level
+          Contract End Date: { column: contract_end, number: true }
+          Contract Renewal Date: { column: contract_renewal, number: true }
+          Internal Notes: { template: "<p>Imported from HubSpot. HubSpot owner: {owner}</p>" }
+
+      - name: partnerInfo
+        type: Partner Info
+        mode: upsert
+        match:
+          parent: { object: partner }
+        parents:
+          - object: partner
+
+  # 2. Companies: a partner's own company sits under the Partner, customer companies stand alone
+  - name: companies
+    source:
+      file: ./data/companies.csv
+    objects:
+      - name: partner
+        type: Partner
+        mode: lookup
+        optional: true
+        skipWhenEmpty: [parent_partner_hs]
+        match:
+          field: HubSpot ID
+          column: parent_partner_hs
+
+      - name: company
+        type: Company
+        mode: upsert
+        match:
+          field: HubSpot ID
+          column: company_key
+        fields:
+          Account Name: name
+          Domain: domain
+          Website: website
+          Account Type: { value: Organization }
+          Account Role: { column: role, split: ";" }
+          Country: country
+        parents:
+          - object: partner
+
+  # 3. Contacts: under their company and the Partner Info; portal access stays off
+  - name: contacts
+    source:
+      file: ./data/contacts.csv
+    objects:
+      - name: partner
+        type: Partner
+        mode: lookup
+        match:
+          field: HubSpot ID
+          column: partner_hs
+
+      - name: partnerInfo
+        type: Partner Info
+        mode: lookup
+        match:
+          parent: { object: partner }
+
+      - name: company
+        type: Company
+        mode: lookup
+        optional: true
+        skipWhenEmpty: [company_key]
+        match:
+          field: HubSpot ID
+          column: company_key
+
+      - name: contact
+        type: Contact
+        mode: upsert
+        match:
+          field: HubSpot ID
+          column: contact_hs
+        fields:
+          First Name: first_name
+          Last Name: last_name
+          Email: email
+          Job Title: job_title
+          Phone Number: phone
+          Mobile: mobile
+          Portal Access: { value: false }
+        references:
+          Company: { object: company }
+        parents:
+          - object: company
+          - object: partnerInfo
+
+  # 4. Each partner's primary contact
+  - name: primary-contacts
+    source:
+      file: ./data/partners.csv
+    objects:
+      - name: contact
+        type: Contact
+        mode: lookup
+        optional: true
+        skipWhenEmpty: [primary_contact_hs]
+        match:
+          field: HubSpot ID
+          column: primary_contact_hs
+
+      - name: partner
+        type: Partner
+        mode: upsert
+        match:
+          field: HubSpot ID
+          column: partner_hs
+        references:
+          Primary Contact: { object: contact }
+
+  # 5. Deals, and a registration under Partner Info for every deal in the Partners pipeline
+  - name: deals
+    source:
+      file: ./data/deals.csv
+    objects:
+      - name: partner
+        type: Partner
+        mode: lookup
+        match:
+          field: HubSpot ID
+          column: partner_hs
+
+      - name: partnerInfo
+        type: Partner Info
+        mode: lookup
+        match:
+          parent: { object: partner }
+
+      - name: company
+        type: Company
+        mode: lookup
+        match:
+          field: HubSpot ID
+          column: company_key
+
+      - name: submitter
+        type: Contact
+        mode: lookup
+        optional: true
+        skipWhenEmpty: [primary_contact_hs]
+        match:
+          field: HubSpot ID
+          column: primary_contact_hs
+
+      - name: deal
+        type: Deal
+        mode: upsert
+        match:
+          field: HubSpot ID
+          column: deal_hs
+        fields:
+          Opportunity Name: deal_name
+          Oppurtunity Type:
+            column: deal_type
+            default: Other
+            map: { New: New, Expansion: Expansion, Renewal: Renewal }
+          Potential Value: { column: amount, number: true }
+          Expected Close Date: { column: close_date, number: true }
+          Pipeline:
+            column: pipeline
+            lower: true
+            strict: true
+            map:
+              partners: partners
+              "sales (enterprise)": sales_enterprise
+              "renewals: partner-managed": renewals_partner
+              "renewals - enterprise": renewals_enterprise
+          Sales Stage:
+            column: stage
+            lower: true
+            strict: true
+            map:
+              "new – sales ready": new_sales_ready
+              "booked a call": booked_a_call
+              "intro call completed": intro_call_completed
+              "deep dive demo 1 initiated": deep_dive_demo_1
+              "technical selling": technical_selling
+              "proposal sent": proposal_sent
+              "poc/pilot": poc_pilot
+              "negotiation": negotiation
+              "msp customer: msp managing": msp_managing
+              "closed-won": closed_won
+              "closed won": closed_won
+              "closed-lost": closed_lost
+              "closed lost": closed_lost
+              "flagged: needs pda/pdm attention": flagged_pda_pdm
+              "pre-renewal window": pre_renewal_window
+              "renewal next 90": renewal_next_90
+              "renewal next 60": renewal_next_60
+              "renewal next 30": renewal_next_30
+              "in negotiation/at risk/objection handling/etc": in_negotiation_at_risk
+              "pending po": pending_po
+              "uptick only - open": uptick_only_open
+              "need csms to review & move to correct stage": csm_review
+              "at risk": at_risk
+              "forward renewals": forward_renewals
+              "up for renewal in 90 days": renewal_90_days
+              "renewal next 30 (needs outreach)": renewal_next_30_outreach
+              "initial outreach": initial_outreach
+              "discovery / evaluation": discovery_evaluation
+              "proposal/renewal sent": proposal_renewal_sent
+          HubSpot Stage: stage
+          HubSpot Owner: owner
+          Partner Role: partner_role
+        references:
+          Company: { object: company }
+        parents:
+          - object: company
+
+      - name: registration
+        type: Deal Registration
+        mode: upsert
+        skipWhenEmpty: [registration_status]
+        match:
+          field: HubSpot ID
+          column: deal_hs
+        fields:
+          Prospective Customer Name: { coalesce: [customer_name, deal_name] }
+          Estimated Deal Value: { column: amount, number: true }
+          Expected Close Date: { column: close_date, number: true }
+          Status: registration_status
+          Opportunity Description: { template: "<p>Imported from HubSpot (stage: {stage}).</p>" }
+        # "Deal" is locked on the 6clicks type, and the API cannot write locked fields: unlock it for
+        # the migration and lock it again afterwards (or leave it out and run scripts/backfill-registration-deal.js).
+        references:
+          Deal: { object: deal }
+          Submitted By: { object: submitter }
+        parents:
+          - object: partnerInfo
+
+      - name: dealLink
+        type: Deal
+        mode: upsert
+        skipWhenEmpty: [registration_status]
+        match:
+          field: HubSpot ID
+          column: deal_hs
+        references:
+          Registration: { object: registration }

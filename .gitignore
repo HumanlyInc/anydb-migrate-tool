@@ -4,3 +4,7 @@ dist/
 *.xlsx
 *.csv
 *.yaml
+.env
+.env.*
+!examples/**/*.yaml
+examples/**/data/

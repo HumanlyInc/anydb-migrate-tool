@@ -8,7 +8,7 @@ function configuredFields(object: ObjectConfig): Array<{ name: string; purpose: 
   for (const name of Object.keys(object.references ?? {})) fields.push({ name, purpose: "reference" });
   if (object.match) {
     if ("field" in object.match) fields.push({ name: object.match.field, purpose: "match" });
-    else for (const [name, source] of Object.entries(object.match.fields)) {
+    else if ("fields" in object.match) for (const [name, source] of Object.entries(object.match.fields)) {
       fields.push({
         name,
         purpose: typeof source === "object" && source !== null && "object" in source ? "reference" : "match",
@@ -23,11 +23,13 @@ function configuredColumns(object: ObjectConfig): string[] {
   const add = (source: ValueSource): void => {
     if (typeof source === "string") columns.push(source);
     else if ("column" in source) columns.push(source.column);
+    else if ("coalesce" in source) columns.push(...source.coalesce);
   };
+  columns.push(...(object.skipWhenEmpty ?? []));
   for (const source of Object.values(object.fields ?? {})) add(source);
   if (object.match) {
     if ("column" in object.match) columns.push(object.match.column);
-    else for (const source of Object.values(object.match.fields)) add(source);
+    else if ("fields" in object.match) for (const source of Object.values(object.match.fields)) add(source);
   }
   return columns;
 }
@@ -35,7 +37,7 @@ function configuredColumns(object: ObjectConfig): string[] {
 /** Checks source columns and configured fields against live AnyDB type definitions. */
 export async function validateAgainstAnyDB(
   client: MigrationAnyDBClient,
-  config: MigrationConfig,
+  config: Pick<MigrationConfig, "objects"> & Partial<MigrationConfig>,
   rows: SourceRow[],
 ): Promise<void> {
   const errors: string[] = [];
@@ -59,6 +61,10 @@ export async function validateAgainstAnyDB(
         errors.push(`${object.name}: type "${object.type}" has no field "${configured.name}"`);
       } else if (configured.purpose === "reference" && actual.valueType !== "ref" && actual.format !== "ref") {
         errors.push(`${object.name}: field "${configured.name}" on type "${object.type}" is not a reference field`);
+      } else if (configured.purpose !== "match" && actual.locked) {
+        errors.push(`${object.name}: field "${configured.name}" on type "${object.type}" is locked, so the API cannot write it (remove it from the plan, or set it another way)`);
+      } else if (configured.purpose !== "match" && actual.computed) {
+        errors.push(`${object.name}: field "${configured.name}" on type "${object.type}" is calculated by a formula and cannot be written`);
       }
     }
   }
