@@ -39,7 +39,20 @@ The `Item` can be created or updated, the `Location` can be looked up, and the `
 
 ## Setup
 
-Requires Node.js 20 or newer. From this directory:
+Requires Node.js 20 or newer. Install the CLI globally from npm:
+
+```bash
+npm install --global @anydbinc/anydb-migrate
+anydb-migrate --help
+```
+
+Alternatively, run it without a global installation:
+
+```bash
+npx @anydbinc/anydb-migrate --help
+```
+
+For local development, install dependencies and build from this repository:
 
 ```bash
 npm install
@@ -59,8 +72,6 @@ After building:
 node dist/cli.js validate migration.yaml
 node dist/cli.js run migration.yaml
 ```
-
-The CLI uses the SDK in the parent repository for now. The `file:..` package dependency can be changed to a published SDK version when this folder moves to its own repository.
 
 ## Credentials
 

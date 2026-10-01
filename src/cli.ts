@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import { Command } from "commander";
 import { loadEnvFile } from "./env.js";
 import { checkCommand } from "./commands/check.js";
@@ -41,14 +42,24 @@ program.command("run")
   .option("--step <name>", "run only this step (repeatable)", collect)
   .option("--failures <file>", "write failed rows to this CSV file")
   .option("--fail-fast", "stop after the first failed row")
-  .option("--requests-per-minute <rate>", "AnyDB API request limit (default: 100)")
+  .option(
+    "--requests-per-minute <rate>",
+    "AnyDB API request limit (default: 100)",
+  )
   .option("--verbose", "show per-object activity and stack traces")
-  .action((config: string, options: CliRunOptions) => runCommand(config, options));
+  .action((config: string, options: CliRunOptions) =>
+    runCommand(config, options),
+  );
 
 try {
   await program.parseAsync();
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  if (process.argv.includes("--verbose") && error instanceof Error && error.stack) console.error(error.stack);
+  if (
+    process.argv.includes("--verbose") &&
+    error instanceof Error &&
+    error.stack
+  )
+    console.error(error.stack);
   process.exitCode = 1;
 }
