@@ -8,3 +8,4 @@ dist/
 .env.*
 !examples/**/*.yaml
 examples/**/data/
+.anydb-cache/
