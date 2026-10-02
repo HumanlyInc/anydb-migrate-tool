@@ -51,6 +51,8 @@ export interface MigrationAnyDBClient {
   ): Promise<MigrationRecord>;
   /** Every record of a type (used by the orphan report). */
   listRecords?(objectType: string): Promise<MigrationRecord[]>;
+  /** Deletes a record completely (used only by the dedupe command, and only with --delete). */
+  deleteRecord?(objectType: string, recordId: string): Promise<void>;
   /** Dry runs register would-be records so later steps can find them. */
   remember?(
     objectType: string,

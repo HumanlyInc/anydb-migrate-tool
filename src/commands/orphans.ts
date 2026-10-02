@@ -34,7 +34,7 @@ export async function orphansCommand(configFile: string): Promise<void> {
     });
     console.log(`${type}: ${blank.length} blank of ${records.length} (match field "${field}")`);
     for (const record of blank) {
-      const failedCreate = /^d+$/.test(record.name ?? "") || (record.name ?? "").startsWith("nohs:");
+      const failedCreate = /^\d+$/.test(record.name ?? "") || (record.name ?? "").startsWith("nohs:");
       console.log(`  ${record.name ?? "(unnamed)"}${failedCreate ? "  <- named by its key: almost certainly a failed create" : ""}  ${host}/${process.env.ANYDB_TEAM_ID}/${process.env.ANYDB_ADB_ID}/${record.id}`);
     }
     total += blank.length;

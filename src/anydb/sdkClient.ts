@@ -2,6 +2,7 @@ import {
   ADOCellFormat,
   ADOCellValueType,
   AnyDBClient as SdkClient,
+  NULL_OBJECTID,
   type ADOCell,
   type ADOCellUpdate,
   type ADORecord,
@@ -14,10 +15,13 @@ import {
   type MigrationValue,
 } from "./AnyDBClient.js";
 import { RequestLimiter } from "./RequestLimiter.js";
+import { planReuse, readSnapshot, snapshotFile, stampOf, writeSnapshot } from "./snapshot.js";
 
 interface CachedType {
   records: ADORecord[];
   definition: ADORecord;
+  /** Listing stamp each record had when fetched; absent for records this run created or changed. */
+  stamps: Map<string, string>;
 }
 
 function referenceId(value: unknown): string | undefined {
@@ -106,6 +110,8 @@ export interface SdkMigrationClientOptions {
   onRateLimit?: (waitMs: number, attempt: number) => void;
   onServerError?: (status: number | string, waitMs: number, attempt: number) => void;
   onCacheProgress?: (event: CacheProgressEvent) => void;
+  /** Where record snapshots are kept between runs. Omit to always load from the server. */
+  cacheDir?: string;
 }
 
 export interface CacheProgressEvent {
@@ -113,6 +119,8 @@ export interface CacheProgressEvent {
   phase: "listing" | "hydrating" | "ready";
   loaded: number;
   total?: number;
+  /** Records taken from the saved snapshot instead of fetched (ready phase only). */
+  reused?: number;
 }
 
 export class SdkMigrationClient implements MigrationAnyDBClient {
@@ -183,6 +191,38 @@ export class SdkMigrationClient implements MigrationAnyDBClient {
     return loading;
   }
 
+  private snapshotPath(objectType: string): string {
+    return snapshotFile(this.options.cacheDir!, this.options.teamId, this.options.databaseId, objectType);
+  }
+
+  private saveType(objectType: string, type: CachedType): void {
+    if (!this.options.cacheDir) return;
+    try {
+      writeSnapshot(
+        this.snapshotPath(objectType),
+        // Only records with a stamp are kept; dry-run placeholders and unstamped copies would never be reused.
+        type.records.flatMap((record) => {
+          const stamp = type.stamps.get(record.meta.adoid);
+          return stamp ? [{ stamp, record }] : [];
+        }),
+      );
+    } catch (error) {
+      // A cache that cannot be written only costs time on the next run.
+      console.warn(`Could not save the ${objectType} cache: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** Saves every loaded type, including records this run created or changed (they refetch next time). */
+  async saveCache(): Promise<void> {
+    for (const [objectType, pending] of this.cache) {
+      try {
+        this.saveType(objectType, await pending);
+      } catch {
+        // A type that failed to load has nothing to save.
+      }
+    }
+  }
+
   private loadType(objectType: string): Promise<CachedType> {
     const current = this.cache.get(objectType);
     if (current) return current;
@@ -208,27 +248,35 @@ export class SdkMigrationClient implements MigrationAnyDBClient {
         if (marker && seen.has(marker)) throw new Error(`Pagination marker repeated while loading ${objectType}`);
         if (marker) seen.add(marker);
       } while (marker);
+      // Every record is still listed (cheap: 100 per request). A saved copy is reused only when the
+      // server reports the same version stamp, so edits and deletions made elsewhere are never missed.
+      const snapshot = this.options.cacheDir ? readSnapshot(this.snapshotPath(objectType)) : [];
+      const { reuse, fetch } = planReuse(metas, snapshot);
       const records: ADORecord[] = [];
-      if (metas.length === 0) {
-        this.options.onCacheProgress?.({ objectType, phase: "ready", loaded: 0, total: 0 });
-      }
-      for (const [index, meta] of metas.entries()) {
+      const stamps = new Map<string, string>();
+      let fetched = 0;
+      for (const meta of metas) {
+        const saved = reuse.get(meta.adoid);
+        if (saved) {
+          records.push(saved);
+          stamps.set(meta.adoid, stampOf(meta));
+          continue;
+        }
         records.push(await this.request(() => this.sdk.getRecord(
           this.options.teamId,
           this.options.databaseId,
           meta.adoid,
         )));
-        const loaded = index + 1;
-        if (loaded % 10 === 0 || loaded === metas.length) {
-          this.options.onCacheProgress?.({
-            objectType,
-            phase: loaded === metas.length ? "ready" : "hydrating",
-            loaded,
-            total: metas.length,
-          });
+        stamps.set(meta.adoid, stampOf(meta));
+        fetched += 1;
+        if (fetched % 10 === 0 && fetched < fetch.length) {
+          this.options.onCacheProgress?.({ objectType, phase: "hydrating", loaded: fetched, total: fetch.length });
         }
       }
-      return { records, definition };
+      this.options.onCacheProgress?.({ objectType, phase: "ready", loaded: records.length, total: records.length, reused: reuse.size });
+      const loadedType: CachedType = { records, definition, stamps };
+      this.saveType(objectType, loadedType);
+      return loadedType;
     })();
     this.cache.set(objectType, loading);
     return loading;
@@ -281,6 +329,11 @@ export class SdkMigrationClient implements MigrationAnyDBClient {
   }
 
   private replaceInCache(type: CachedType, updated: ADORecord): void {
+    // Keep the stamp the server returned with this copy. If it is not in the same form the listing
+    // uses it simply never matches, and the record is fetched again next run.
+    const stamp = stampOf(updated.meta);
+    if (stamp) type.stamps.set(updated.meta.adoid, stamp);
+    else type.stamps.delete(updated.meta.adoid);
     const index = type.records.findIndex((candidate) => candidate.meta.adoid === updated.meta.adoid);
     if (index >= 0) type.records[index] = updated;
     else type.records.push(updated);
@@ -364,6 +417,18 @@ export class SdkMigrationClient implements MigrationAnyDBClient {
   async listRecords(objectType: string): Promise<MigrationRecord[]> {
     const type = await this.loadType(objectType);
     return type.records.map(asMigrationRecord);
+  }
+
+  /** Deletes without loading the type, so a delete by id needs no cache; any cached copy is dropped. */
+  async deleteRecord(_objectType: string, recordId: string): Promise<void> {
+    await this.request(
+      () => this.sdk.removeRecord({ adoid: recordId, ...this.ids, removefromids: NULL_OBJECTID }),
+      false,
+    );
+    for (const pending of this.cache.values()) {
+      const cached = await pending;
+      cached.records = cached.records.filter((record) => record.meta.adoid !== recordId);
+    }
   }
 
   async remember(

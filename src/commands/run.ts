@@ -5,6 +5,10 @@ import type { SourceRow } from "../source/SourceReader.js";
 import { MigrationEngine, type MigrationFailure, type MigrationResult } from "../migration/MigrationEngine.js";
 import { createSdkClient } from "../anydb/createSdkClient.js";
 import { validateAgainstAnyDB } from "../config/validateRemote.js";
+import { acquireRunLock } from "../lock.js";
+import { planDedupe } from "./dedupe.js";
+import type { MigrationAnyDBClient } from "../anydb/AnyDBClient.js";
+import type { ObjectConfig } from "../types/config.js";
 
 export interface CliRunOptions {
   dryRun?: boolean;
@@ -16,6 +20,8 @@ export interface CliRunOptions {
   where?: string[];
   /** Run only the named steps. */
   step?: string[];
+  /** Commander sets this to false for --no-cache. */
+  cache?: boolean;
   /** Write failed rows to this CSV file. */
   failures?: string;
 }
@@ -80,6 +86,30 @@ export function failuresCsv(failures: Array<MigrationFailure & { step: string }>
   return `${rows.map((row) => row.map(csvCell).join(",")).join("\n")}\n`;
 }
 
+/**
+ * After a step, every record type matched on a single key (such as a HubSpot ID) must hold each key
+ * once. Returns false and says which types are affected when it does not, so duplicates are caught the
+ * moment they appear instead of at the end of a long import. Uses the cache the step already loaded.
+ */
+export async function reportDuplicateKeys(client: MigrationAnyDBClient, objects: ObjectConfig[]): Promise<boolean> {
+  if (!client.listRecords) return true;
+  let clean = true;
+  const checked = new Set<string>();
+  for (const object of objects) {
+    if (object.mode === "lookup" || !object.match || !("field" in object.match)) continue;
+    const field = object.match.field;
+    const label = `${object.type}/${field}`;
+    if (checked.has(label)) continue;
+    checked.add(label);
+    const { remove } = planDedupe(await client.listRecords(object.type), field);
+    if (remove.length > 0) {
+      clean = false;
+      console.error(`DUPLICATES: ${object.type} has ${remove.length} extra record${remove.length === 1 ? "" : "s"} sharing a "${field}" value. Stop and investigate before continuing.`);
+    }
+  }
+  return clean;
+}
+
 export async function runCommand(configFile: string, options: CliRunOptions): Promise<void> {
   const loaded = await loadConfig(configFile);
   const filters = parseWhere(options.where);
@@ -89,9 +119,17 @@ export async function runCommand(configFile: string, options: CliRunOptions): Pr
     throw new Error(`No step matches ${options.step?.join(", ")}. Steps: ${loaded.steps.map((step) => step.name).join(", ")}`);
   }
 
+  // A real run writes, so it must be the only one on this workspace. Dry runs only read.
+  if (!options.dryRun) {
+    const teamId = loaded.plan.anydb?.teamId ?? process.env.ANYDB_TEAM_ID ?? "team";
+    const databaseId = loaded.plan.anydb?.databaseId ?? process.env.ANYDB_ADB_ID ?? "workspace";
+    acquireRunLock(teamId, databaseId);
+  }
+
   const client = createSdkClient(loaded.plan, {
     verbose: options.verbose,
     requestsPerMinute: options.requestsPerMinute,
+    cache: options.cache,
   });
   const engine = new MigrationEngine(client);
   const allFailures: Array<MigrationFailure & { step: string }> = [];
@@ -121,6 +159,14 @@ export async function runCommand(configFile: string, options: CliRunOptions): Pr
       allFailures.push({ ...failure, step: step.name });
     }
     console.log(formatSummary(result));
+    await client.saveCache();
+    if (!options.dryRun && !(await reportDuplicateKeys(client, step.config.objects))) {
+      allFailures.push({
+        step: step.name, rowNumber: 0, objectName: "(duplicate check)", objectType: "(all)", reason: "Duplicate records were found; see above",
+      } as MigrationFailure & { step: string });
+      console.error(`Stopping after step "${step.name}": later steps would build on duplicated records.`);
+      break;
+    }
     if (options.failFast && result.failures.length > 0) break;
   }
 

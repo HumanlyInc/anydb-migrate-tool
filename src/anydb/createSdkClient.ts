@@ -9,6 +9,16 @@ function required(value: string | undefined, name: string): string {
 export interface CreateSdkClientOptions {
   verbose?: boolean;
   requestsPerMinute?: string | number;
+  /** false (from --no-cache) turns the snapshot off. */
+  cache?: boolean;
+}
+
+/** Snapshots live in .anydb-cache unless ANYDB_CACHE_DIR names another folder or says "off". */
+function cacheDirectory(options: CreateSdkClientOptions): string | undefined {
+  if (options.cache === false) return undefined;
+  const setting = process.env.ANYDB_CACHE_DIR?.trim();
+  if (setting?.toLowerCase() === "off") return undefined;
+  return setting || ".anydb-cache";
 }
 
 function requestRate(value: string | number | undefined): number {
@@ -27,6 +37,7 @@ export function createSdkClient(config: { anydb?: AnyDBSettings }, options: Crea
     databaseId: required(config.anydb?.databaseId ?? process.env.ANYDB_ADB_ID, "anydb.databaseId or ANYDB_ADB_ID"),
     baseUrl: config.anydb?.baseUrl ?? process.env.ANYDB_BASE_URL,
     debug: options.verbose,
+    cacheDir: cacheDirectory(options),
     requestsPerMinute: requestRate(options.requestsPerMinute ?? process.env.ANYDB_REQUESTS_PER_MINUTE),
     onRateLimit: (waitMs, attempt) => {
       const seconds = Math.ceil(waitMs / 1_000);
@@ -35,14 +46,15 @@ export function createSdkClient(config: { anydb?: AnyDBSettings }, options: Crea
     onServerError: (status, waitMs, attempt) => {
       console.warn(`AnyDB returned ${status}. Waiting ${Math.ceil(waitMs / 1_000)} seconds before retry ${attempt}...`);
     },
-    onCacheProgress: ({ objectType, phase, loaded, total }) => {
+    onCacheProgress: ({ objectType, phase, loaded, total, reused }) => {
       if (phase === "listing") {
         if (loaded === 0) console.log(`Loading ${objectType} cache: discovering records...`);
         else console.log(`Loading ${objectType} cache: discovered ${loaded} record${loaded === 1 ? "" : "s"}`);
         return;
       }
       if (phase === "ready") {
-        console.log(`Loading ${objectType} cache: ready (${loaded} record${loaded === 1 ? "" : "s"})`);
+        const note = reused ? `, ${reused} unchanged since the saved snapshot` : "";
+        console.log(`Loading ${objectType} cache: ready (${loaded} record${loaded === 1 ? "" : "s"}${note})`);
         return;
       }
       const percentage = total === 0 ? 100 : Math.round((loaded / total!) * 100);
