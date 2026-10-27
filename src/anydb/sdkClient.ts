@@ -73,6 +73,13 @@ function valueType(value: unknown): ADOCellValueType {
   return ADOCellValueType.STRING;
 }
 
+/** A formula cell that allows value override: writing a value must clear its formula or the formula recomputes over it. */
+export function isOverridable(cell: ADOCell): boolean {
+  return Boolean(cell.expr)
+    && cell.type !== ADOCellValueType.REF
+    && cell.props?.VALUE_OVERRIDE_ENABLED?.value === true;
+}
+
 /** Makes a source value fit the type of the field it is written to. */
 function coerceForCell(cell: ADOCell, field: string, value: unknown): unknown {
   if (value === undefined || value === null) return value;
@@ -175,6 +182,7 @@ export class SdkMigrationClient implements MigrationAnyDBClient {
           format: cell.format,
           locked: cell.props?.CELL_LOCKED?.value === true,
           computed: Boolean(cell.expr) && cell.type !== ADOCellValueType.REF,
+          overridable: isOverridable(cell),
         })),
     };
   }
@@ -323,6 +331,7 @@ export class SdkMigrationClient implements MigrationAnyDBClient {
             key: field,
             type: existing.type ?? valueType(value),
             value: coerceForCell(existing, field, value),
+            ...(isOverridable(existing) ? { expr: "" } : {}),
           };
     }
     return content;

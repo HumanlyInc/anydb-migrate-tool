@@ -16,8 +16,10 @@ The partner custom object (its file name must contain `records`), plus companies
 
 ## Runbook
 
+For a real engagement, copy this folder to `customers/<customer>/` (git-ignored, see `customers/README.md`) and run everything there, so exports, prepared data and failure files never sit next to the example. The commands below use the example paths; swap in your copy.
+
 ```bash
-# 1. clean data (customer data goes in the git-ignored data/ folder)
+# 1. clean data (customer data goes in the git-ignored data/ folder of your customers/ copy)
 node examples/hubspot-partners/prepare.mjs <exports-dir> examples/hubspot-partners/data
 #    read data/prepare-report.txt: companies it will create, contacts or deals linked to several partners, deals left out
 

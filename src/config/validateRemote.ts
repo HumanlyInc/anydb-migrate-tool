@@ -63,8 +63,8 @@ export async function validateAgainstAnyDB(
         errors.push(`${object.name}: field "${configured.name}" on type "${object.type}" is not a reference field`);
       } else if (configured.purpose !== "match" && actual.locked) {
         errors.push(`${object.name}: field "${configured.name}" on type "${object.type}" is locked, so the API cannot write it (remove it from the plan, or set it another way)`);
-      } else if (configured.purpose !== "match" && actual.computed) {
-        errors.push(`${object.name}: field "${configured.name}" on type "${object.type}" is calculated by a formula and cannot be written`);
+      } else if (configured.purpose !== "match" && actual.computed && !actual.overridable) {
+        errors.push(`${object.name}: field "${configured.name}" on type "${object.type}" is calculated by a formula and cannot be written (enable value override on the field to allow it)`);
       }
     }
   }

@@ -59,6 +59,33 @@ test("live validation reports missing types, fields, source columns, and invalid
   });
 });
 
+test("live validation allows formula fields that have value override enabled", async () => {
+  const overridable = {
+    listTypes: async () => ["Thing"],
+    getType: async () => ({
+      name: "Thing",
+      id: "thing-type",
+      fields: [
+        { name: "Key", position: "A1", valueType: "string" },
+        { name: "Typed Over", position: "A2", valueType: "number", computed: true, overridable: true },
+        { name: "Hard Formula", position: "A3", valueType: "number", computed: true },
+      ],
+    }),
+  } as unknown as MigrationAnyDBClient;
+  const plan = (fields: Record<string, string>) => ({
+    name: "x",
+    source: { file: "x.csv" },
+    objects: [{
+      name: "thing", type: "Thing", mode: "upsert" as const,
+      match: { field: "Key", column: "Key" },
+      fields,
+    }],
+  });
+  const rows = [{ rowNumber: 2, values: { Key: "k", Typed: "1", Hard: "2" } }];
+  await validateAgainstAnyDB(overridable, plan({ "Typed Over": "Typed" }), rows);
+  await assert.rejects(validateAgainstAnyDB(overridable, plan({ "Hard Formula": "Hard" }), rows), /"Hard Formula".*formula/);
+});
+
 test("live validation rejects locked and formula fields that the API cannot write", async () => {
   const guarded = {
     listTypes: async () => ["Thing"],

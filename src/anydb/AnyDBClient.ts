@@ -19,8 +19,10 @@ export interface AnyDBTypeField {
   format?: string;
   /** The type locks this field, so the API refuses to write it. */
   locked?: boolean;
-  /** The field is calculated by a formula and cannot be written. */
+  /** The field is calculated by a formula and cannot be written, unless `overridable` is also set. */
   computed?: boolean;
+  /** The type allows typing over this formula field (value override is on), so a write replaces the formula on that record. */
+  overridable?: boolean;
 }
 
 export interface AnyDBTypeSchema {

@@ -9,3 +9,7 @@ dist/
 !examples/**/*.yaml
 examples/**/data/
 .anydb-cache/
+
+# customer work stays local: see customers/README.md
+customers/*
+!customers/README.md
